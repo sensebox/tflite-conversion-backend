@@ -16,7 +16,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-The API will be available at `http://localhost:5000`
+The API will be available at `http://localhost:3000`
 
 ## API Endpoints
 
@@ -105,7 +105,7 @@ Health check endpoint to verify the API is running.
 ## Configuration
 
 - **Max Upload Size**: 10MB (configurable in `app.py`)
-- **Port**: 5000 (default)
+- **Port**: 3000 (default)
 - **CORS**: Enabled for `localhost:5173` and `localhost:3000`
 
 ## Testing
@@ -128,14 +128,14 @@ For production, use a WSGI server like Gunicorn:
 
 ```bash
 pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
+gunicorn -w 4 -b 0.0.0.0:3000 app:app
 ```
 
 Or use uWSGI:
 
 ```bash
 pip install uwsgi
-uwsgi --http :5000 --wsgi-file app.py --callable app --processes 4
+uwsgi --http :3000 --wsgi-file app.py --callable app --processes 4
 ```
 
 ## Notes

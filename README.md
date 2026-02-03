@@ -9,7 +9,38 @@ This directory contains the backend services for the Blockly TFLite conversion f
 - Python 3.8 or higher
 - pip (Python package manager)
 
+**OR**
+
+- Docker and Docker Compose
+
 ### Installation
+
+#### Option 1: Docker (Recommended)
+
+1. Copy the environment file and configure:
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+2. Build and run with Docker Compose:
+```bash
+docker-compose up -d
+```
+
+The service will be available at `http://localhost:3000`
+
+To stop the service:
+```bash
+docker-compose down
+```
+
+To view logs:
+```bash
+docker-compose logs -f
+```
+
+#### Option 2: Local Development
 
 1. Create a virtual environment (recommended):
 ```bash
@@ -20,6 +51,17 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 2. Install dependencies:
 ```bash
 pip install -r requirements.txt
+```
+
+3. Configure environment variables (create .env file):
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+4. Run the application:
+```bash
+python app.py
 ```
 
 ## Services

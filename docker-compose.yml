@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  tflite-backend:
+    build: .
+    container_name: tflite-conversion-backend
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount temporary conversion directory
+      - tflite_tmp:/tmp/tflite_conversions
+    restart: unless-stopped
+    # Load environment variables from .env file
+    env_file:
+      - .env
+
+volumes:
+  tflite_tmp:
