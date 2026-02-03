@@ -56,7 +56,7 @@ if os.getenv('TESTING') != 'true':
 # Enable CORS for frontend communication
 CORS(app, resources={
     r"/api/*": {
-        "origins": ["http://localhost:5173", "http://localhost:3000"],
+        "origins": ["http://localhost:5173", "http://localhost:3000"], # TODO: needs to be changed for production?
         "methods": ["POST", "OPTIONS"],
         "allow_headers": ["Content-Type"]
     }
