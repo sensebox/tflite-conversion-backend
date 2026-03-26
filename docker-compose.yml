@@ -5,7 +5,7 @@ services:
     build: .
     container_name: tflite-conversion-backend
     ports:
-      - "3000:3000"
+      - "5000:5000"
     volumes:
       # Mount temporary conversion directory
       - tflite_tmp:/tmp/tflite_conversions

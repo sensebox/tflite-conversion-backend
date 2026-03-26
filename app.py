@@ -10,12 +10,10 @@ import tempfile
 import shutil
 import json
 import base64
-import requests
-from pathlib import Path
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from services.tflite_converter import (
     convert_tfjs_to_tflite,
@@ -57,7 +55,7 @@ if os.getenv('TESTING') != 'true':
 CORS(app, resources={
     r"/api/*": {
         "origins": ["http://localhost:5173", "http://localhost:3000"], # TODO: needs to be changed for production?
-        "methods": ["POST", "OPTIONS"],
+        "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type"]
     }
 })
@@ -720,125 +718,58 @@ def compile_model():
         }), 500
 
 
-@app.route('/api/compile-camera-capture', methods=['POST'])
-def compile_camera_capture():
+@app.route('/api/compile-capture/camera', methods=['GET'])
+def capture_camera():
     """
-    Compile the camera_capture.ino template and return the binary.
-    Used when serial camera connection fails and user needs to flash firmware.
-    
-    Accepts optional boardType (defaults to sensebox_eye).
-    Returns compiled binary as base64.
+    Return the pre-compiled camera_capture.bin firmware.
+    Used when the user needs to flash the camera capture firmware.
     """
-    try:
-        # Parse request data (board type is optional)
-        data = request.get_json() if request.is_json else {}
-        board = data.get('boardType', 'sensebox_eye')
-        
-        # Map board type to compiler board string
-        # The compiler expects senseBox-specific identifiers.
-        board_mapping = {
-            'sensebox_eye': 'sensebox_eye',
-            'sensebox_mcu_esp32s2': 'sensebox-esp32s2',
-            'sensebox-esp32s2': 'sensebox-esp32s2',
-        }
-        compiler_board = board_mapping.get(board, 'sensebox_eye')
-        
-        # Read the camera_capture.ino template
-        template_path = os.path.join(os.path.dirname(__file__), 'templates', 'camera_capture.ino')
-        
-        if not os.path.exists(template_path):
-            return jsonify({
-                "success": False,
-                "error": {
-                    "message": "Template file not found",
-                    "details": f"camera_capture.ino template does not exist at {template_path}",
-                    "type": "TEMPLATE_NOT_FOUND",
-                    "suggestions": ["Ensure the template file exists in backend/templates/"],
-                    "retryable": False
-                }
-            }), 404
-        
-        with open(template_path, 'r', encoding='utf-8') as f:
-            sketch_content = f.read()
-        
-        # Compile the sketch
-        try:
-            binary_data = compile_sketch(
-                sketch_content=sketch_content,
-                board=compiler_board,
-                project_id=f"camera-capture-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
-                optimization="default"
-            )
-        except CompilerTimeoutError as e:
-            return jsonify({
-                "success": False,
-                "error": {
-                    "message": "Compilation timed out",
-                    "details": str(e),
-                    "type": "TIMEOUT",
-                    "suggestions": [
-                        "The compiler service may be overloaded",
-                        "Try again in a few moments"
-                    ],
-                    "retryable": True
-                }
-            }), 408
-        except CompilerConnectionError as e:
-            return jsonify({
-                "success": False,
-                "error": {
-                    "message": "Cannot connect to compiler service",
-                    "details": str(e),
-                    "type": "CONNECTION_ERROR",
-                    "suggestions": [
-                        "Ensure the compiler service is running",
-                        f"Check that {COMPILER_URL} is accessible"
-                    ],
-                    "retryable": True
-                }
-            }), 503
-        except CompilationError as e:
-            return jsonify({
-                "success": False,
-                "error": {
-                    "message": e.message,
-                    "details": str(e.details) if e.details else str(e),
-                    "type": e.error_type,
-                    "suggestions": [
-                        "Check the compiler service logs for details",
-                        "Ensure the template file is valid Arduino code"
-                    ],
-                    "retryable": e.retryable
-                }
-            }), 500
-        
-        # Encode binary as base64
-        binary_base64 = base64.b64encode(binary_data).decode('utf-8')
-        binary_size = len(binary_data)
-        
-        # Return success response
-        return jsonify({
-            "success": True,
-            "data": {
-                "binary": binary_base64,
-                "binarySize": binary_size,
-                "board": compiler_board,
-                "timestamp": datetime.utcnow().isoformat() + 'Z',
-                "filename": "camera_capture.bin"
-            }
-        }), 200
-        
-    except Exception as e:
-        app.logger.error(f"Camera capture compilation error: {str(e)}")
+    bin_path = os.path.join(os.path.dirname(__file__), 'templates', 'camera_capture.bin')
+
+    if not os.path.exists(bin_path):
         return jsonify({
             "success": False,
             "error": {
-                "message": "Internal server error",
-                "details": str(e),
-                "type": "INTERNAL_ERROR",
-                "retryable": True
+                "message": "Binary not found",
+                "details": "camera_capture.bin does not exist in templates/",
+                "type": "FILE_NOT_FOUND",
+                "retryable": False
             }
-        }), 500
+        }), 404
+
+    return send_file(
+        bin_path,
+        mimetype='application/octet-stream',
+        as_attachment=True,
+        download_name='camera_capture.bin'
+    )
+
+
+@app.route('/api/compile-capture/acceleration', methods=['GET'])
+def capture_acceleration():
+    """
+    Return the pre-compiled acceleration_capture.bin firmware.
+    Used when the user needs to flash the acceleration capture firmware.
+    """
+    bin_path = os.path.join(os.path.dirname(__file__), 'templates', 'acceleration_capture.bin')
+
+    if not os.path.exists(bin_path):
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Binary not found",
+                "details": "acceleration_capture.bin does not exist in templates/",
+                "type": "FILE_NOT_FOUND",
+                "retryable": False
+            }
+        }), 404
+
+    return send_file(
+        bin_path,
+        mimetype='application/octet-stream',
+        as_attachment=True,
+        download_name='acceleration_capture.bin'
+    )
 
 
 @app.errorhandler(404)
