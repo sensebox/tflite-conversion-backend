@@ -93,6 +93,84 @@ Health check endpoint to verify the API is running.
 }
 ```
 
+### GET /api/capture/camera
+
+Returns the pre-compiled camera capture firmware binary for flashing to a device.
+
+**Request:**
+- No request body required.
+
+**Response (200):**
+- Content-Type: application/octet-stream
+- File download: `camera_capture.bin`
+
+**Error (404):**
+```json
+{
+  "success": false,
+  "error": {
+    "message": "Binary not found",
+    "details": "camera_capture.bin does not exist in templates/",
+    "type": "FILE_NOT_FOUND",
+    "retryable": false
+  }
+}
+```
+
+---
+
+### GET /api/capture/acceleration
+
+Returns the pre-compiled acceleration capture firmware binary for flashing to a device.
+
+**Request:**
+- No request body required.
+
+**Response (200):**
+- Content-Type: application/octet-stream
+- File download: `acceleration_capture.bin`
+
+**Error (404):**
+```json
+{
+  "success": false,
+  "error": {
+    "message": "Binary not found",
+    "details": "acceleration_capture.bin does not exist in templates/",
+    "type": "FILE_NOT_FOUND",
+    "retryable": false
+  }
+}
+```
+
+---
+
+### GET /api/capture/gesture
+
+Returns the pre-compiled gesture capture firmware binary for flashing to a device.
+
+**Request:**
+- No request body required.
+
+**Response (200):**
+- Content-Type: application/octet-stream
+- File download: `gesture_capture.bin`
+
+**Error (404):**
+```json
+{
+  "success": false,
+  "error": {
+    "message": "Binary not found",
+    "details": "gesture_capture.bin does not exist in templates/",
+    "type": "FILE_NOT_FOUND",
+    "retryable": false
+  }
+}
+```
+
+---
+
 ## Error Types
 
 - `VALIDATION_ERROR`: Invalid request data (not retryable)

@@ -718,7 +718,7 @@ def compile_model():
         }), 500
 
 
-@app.route('/api/compile-capture/camera', methods=['GET'])
+@app.route('/api/capture/camera', methods=['GET'])
 def capture_camera():
     """
     Return the pre-compiled camera_capture.bin firmware.
@@ -745,7 +745,7 @@ def capture_camera():
     )
 
 
-@app.route('/api/compile-capture/acceleration', methods=['GET'])
+@app.route('/api/capture/acceleration', methods=['GET'])
 def capture_acceleration():
     """
     Return the pre-compiled acceleration_capture.bin firmware.
@@ -769,6 +769,32 @@ def capture_acceleration():
         mimetype='application/octet-stream',
         as_attachment=True,
         download_name='acceleration_capture.bin'
+    )
+
+@app.route('/api/capture/gesture', methods=['GET'])
+def capture_gesture():
+    """
+    Return the pre-compiled gesture_capture.bin firmware.
+    Used when the user needs to flash the gesture capture firmware.
+    """
+    bin_path = os.path.join(os.path.dirname(__file__), 'templates', 'gesture_capture.bin')
+
+    if not os.path.exists(bin_path):
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Binary not found",
+                "details": "gesture_capture.bin does not exist in templates/",
+                "type": "FILE_NOT_FOUND",
+                "retryable": False
+            }
+        }), 404
+
+    return send_file(
+        bin_path,
+        mimetype='application/octet-stream',
+        as_attachment=True,
+        download_name='gesture_capture.bin'
     )
 
 
