@@ -74,18 +74,21 @@ def convert_tfjs_to_tflite(
                     """Generator function for representative dataset calibration."""
                     import numpy as np
                     for sample in representative_dataset:
-                        # Sample is a flat list of floats representing 96x96x1 grayscale image
+                        # Convert sample to array
                         sample_array = np.array(sample, dtype=np.float32)
-                        
-                        # Expected shape: (1, 96, 96, 1) for grayscale images
+
+                        # Get expected shape from the model input shape
+                        expected_shape = tuple(1 if dim is None else dim for dim in input_shape)
+
+                        # Reshape sample to match model input shape
                         if len(sample_array.shape) == 1:
-                            # Flat array - reshape to (1, 96, 96, 1)
+                            # Flat array - reshape to model input shape
                             try:
-                                sample_array = sample_array.reshape(1, 96, 96, 1)
+                                sample_array = sample_array.reshape(expected_shape)
                             except ValueError as e:
-                                raise ValueError(f"Error reshaping sample: {e}. Sample size: {sample_array.size}, expected: {1*96*96*1}")
-                        elif len(sample_array.shape) == 3:
-                            # Add batch dimension
+                                raise ValueError(f"Error reshaping sample: {e}. Sample size: {sample_array.size}, expected shape: {expected_shape}")
+                        elif len(sample_array.shape) == len(expected_shape) - 1:
+                            # Missing batch dimension - add it
                             sample_array = np.expand_dims(sample_array, 0)
                         
                         yield [sample_array]
