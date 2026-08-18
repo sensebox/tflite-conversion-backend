@@ -44,7 +44,7 @@ class Config:
     # Default values
     DEFAULTS = {
         'COMPILATION_TIMEOUT': 120,
-        'DEFAULT_BOARD': 'esp32:esp32:sensebox_eye',
+        'DEFAULT_BOARD': 'esp32:esp32:sensebox_mcu_eye',
         'DEFAULT_OPTIMIZATION': 'default',
         'MAX_CONTENT_LENGTH': 10 * 1024 * 1024,  # 10MB
         'CONVERSION_TIMEOUT': 60,

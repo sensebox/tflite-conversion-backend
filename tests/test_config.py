@@ -42,7 +42,7 @@ class TestConfigLoading:
         with patch.dict(os.environ, {
             'VITE_BLOCKLY_API': 'http://test.com',
             'COMPILATION_TIMEOUT': '180',
-            'DEFAULT_BOARD': 'esp32:esp32:sensebox_eye',
+            'DEFAULT_BOARD': 'esp32:esp32:sensebox_mcu_eye',
             'DEFAULT_OPTIMIZATION': 'size'
         }):
             config = Config()

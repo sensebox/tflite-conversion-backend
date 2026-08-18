@@ -21,7 +21,7 @@ from services.tflite_converter import (
     get_model_info,
     generate_model_settings
 )
-from services.model_injection import inject_model_data, inject_model_data_and_settings
+from services.model_injection import inject_model_data, inject_model_data_and_settings, inject_class_names
 from services.compiler_service import (
     compile_sketch,
     CompilationError,
@@ -54,7 +54,7 @@ if os.getenv('TESTING') != 'true':
 # Enable CORS for frontend communication
 CORS(app, resources={
     r"/api/*": {
-        "origins": ["http://localhost:5173", "http://localhost:3000"], # TODO: needs to be changed for production?
+        "origins": ["*"],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
     }
@@ -798,7 +798,259 @@ def capture_gesture():
     )
 
 
-@app.errorhandler(404)
+@app.route('/api/collect/images', methods=['POST'])
+def collect_images():
+    """
+    Compile a sketch for collecting training images with custom class names.
+    
+    Accepts JSON with classNames (list of strings), boardType, optimization level.
+    Returns compiled binary as base64.
+    
+    Request body:
+    {
+        "classNames": ["class1", "class2", ...],
+        "boardType": "esp32:esp32:esp32",  // optional, uses default if not provided
+        "optimization": "default"           // optional: "default", "size", or "speed"
+    }
+    
+    Response:
+    {
+        "success": true,
+        "data": {
+            "binaryData": "base64-encoded-binary",
+            "binarySize": 1234567,
+            "numClasses": 3,
+            "classNames": ["class1", "class2", "class3"],
+            "board": "esp32:esp32:esp32",
+            "optimization": "default",
+            "timestamp": "2024-01-15T10:30:00Z"
+        }
+    }
+    """
+    try:
+        # Validate request content type
+        if not request.is_json:
+            return jsonify({
+                "success": False,
+                "error": {
+                    "message": "Invalid content type",
+                    "details": "Request must have Content-Type: application/json",
+                    "type": "INVALID_CONTENT_TYPE",
+                    "suggestions": ["Set Content-Type header to application/json"],
+                    "retryable": False
+                }
+            }), 400
+        
+        # Parse request data
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": {
+                    "message": "Empty request body",
+                    "details": "Request body is required",
+                    "type": "EMPTY_REQUEST",
+                    "suggestions": ["Include classNames in request body"],
+                    "retryable": False
+                }
+            }), 400
+        
+        # Validate required fields
+        if 'classNames' not in data:
+            return jsonify(error_response(
+                "Missing class names",
+                "classNames field is required",
+                "MISSING_CLASS_NAMES",
+                ["Include classNames array in request body"]
+            )), 400
+        
+        # Extract class names
+        class_names = data.get('classNames')
+        
+        # Validate class names
+        if not isinstance(class_names, list):
+            return jsonify(error_response(
+                "Invalid class names format",
+                f"classNames must be an array, got {type(class_names).__name__}",
+                "INVALID_CLASS_NAMES",
+                ["Provide classNames as an array of strings"]
+            )), 400
+        
+        if len(class_names) == 0:
+            return jsonify(error_response(
+                "Empty class names list",
+                "classNames array cannot be empty",
+                "EMPTY_CLASS_NAMES",
+                ["Provide at least one class name"]
+            )), 400
+        
+        # Parse options
+        board = data.get('boardType', config.get('DEFAULT_BOARD'))
+        optimization = data.get('optimization', config.get('DEFAULT_OPTIMIZATION'))
+        
+        # Validate board type
+        if not isinstance(board, str) or not board:
+            return jsonify(error_response(
+                "Invalid board type",
+                f"Board must be a non-empty string, got {type(board).__name__}",
+                "INVALID_BOARD",
+                [f"Use a valid board identifier like '{config.get('DEFAULT_BOARD')}'"]
+            )), 400
+        
+        # Validate optimization level
+        valid_optimizations = ['default', 'size', 'speed']
+        if optimization not in valid_optimizations:
+            return jsonify(error_response(
+                "Invalid optimization level",
+                f"Optimization must be one of: {', '.join(valid_optimizations)}",
+                "INVALID_OPTIMIZATION",
+                [f"Use one of: {', '.join(valid_optimizations)}"]
+            )), 400
+        
+        # Step 1: Inject class names into template
+        try:
+            sketch_content, injection_error = inject_class_names(class_names)
+            
+            if injection_error:
+                return jsonify({
+                    "success": False,
+                    "error": {
+                        "message": "Class name injection failed",
+                        "details": injection_error,
+                        "type": "INJECTION_ERROR",
+                        "suggestions": [
+                            "Ensure class names are valid strings",
+                            "Check that class names don't contain invalid characters"
+                        ],
+                        "retryable": False
+                    }
+                }), 400
+            
+        except Exception as e:
+            app.logger.error(f"Error injecting class names: {str(e)}", exc_info=True)
+            return jsonify({
+                "success": False,
+                "error": {
+                    "message": "Class name injection failed",
+                    "details": str(e),
+                    "type": "INJECTION_ERROR",
+                    "suggestions": [
+                        "Ensure the template file exists",
+                        "Verify class names are valid"
+                    ],
+                    "retryable": False
+                }
+            }), 500
+        
+        # Step 2: Compile the sketch
+        try:
+            binary_data = compile_sketch(
+                sketch_content=sketch_content,
+                board=board,
+                optimization=optimization
+            )
+            binary_size = len(binary_data)
+        
+        except CompilerTimeoutError as e:
+            return jsonify({
+                "success": False,
+                "error": {
+                    "message": e.message,
+                    "details": e.details,
+                    "type": e.error_type,
+                    "suggestions": [
+                        "Try again - the compiler may be under heavy load"
+                    ],
+                    "retryable": True
+                }
+            }), 504
+        
+        except CompilerConnectionError as e:
+            return jsonify({
+                "success": False,
+                "error": {
+                    "message": e.message,
+                    "details": e.details,
+                    "type": e.error_type,
+                    "suggestions": [
+                        "Verify the compiler service is running",
+                        f"Check VITE_BLOCKLY_API configuration: {COMPILER_URL}",
+                        "Try again in a few moments"
+                    ],
+                    "retryable": True
+                }
+            }), 503
+        
+        except CompilationError as e:
+            # Determine HTTP status code based on error type
+            status_code = 400 if not e.retryable else 500
+            
+            return jsonify({
+                "success": False,
+                "error": {
+                    "message": e.message,
+                    "details": e.details,
+                    "type": e.error_type,
+                    "suggestions": [
+                        "Check the compilation error details",
+                        "Try again or contact support if the issue persists"
+                    ],
+                    "retryable": e.retryable
+                }
+            }), status_code
+        
+        except Exception as e:
+            app.logger.error(f"Unexpected compilation error: {str(e)}", exc_info=True)
+            return jsonify({
+                "success": False,
+                "error": {
+                    "message": "Unexpected compilation error",
+                    "details": str(e),
+                    "type": "UNEXPECTED_ERROR",
+                    "suggestions": [
+                        "Try again",
+                        "Contact support if the issue persists"
+                    ],
+                    "retryable": True
+                }
+            }), 500
+        
+        # Step 3: Format response
+        timestamp = datetime.utcnow().isoformat() + 'Z'
+        binary_b64 = base64.b64encode(binary_data).decode('utf-8')
+        
+        return jsonify({
+            "success": True,
+            "data": {
+                "binaryData": binary_b64,
+                "binarySize": binary_size,
+                "numClasses": len(class_names),
+                "classNames": class_names,
+                "board": board,
+                "optimization": optimization,
+                "timestamp": timestamp
+            }
+        }), 200
+    
+    except Exception as e:
+        # Catch-all for unexpected errors
+        app.logger.error(f"Unexpected error in collect-images endpoint: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": {
+                "message": "Internal server error",
+                "details": str(e),
+                "type": "INTERNAL_ERROR",
+                "suggestions": [
+                    "Try again",
+                    "Contact support if the issue persists"
+                ],
+                "retryable": True
+            }
+        }), 500
+
+
+
 def not_found(error):
     """Handle 404 errors."""
     return jsonify({

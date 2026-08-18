@@ -280,3 +280,88 @@ def get_model_placeholders_info() -> dict:
         'array_end_pattern': MODEL_DATA_ARRAY_END_PATTERN,
         'size_pattern': MODEL_SIZE_PATTERN
     }
+
+
+def inject_class_names(class_names: list) -> Tuple[str, Optional[str]]:
+    """
+    Inject class names into the collect-training-images template.
+    
+    Replaces the default class names array and NUM_CLASSES constant with
+    the provided class names while preserving all other template content.
+    
+    Args:
+        class_names: List of class names (strings)
+    
+    Returns:
+        Tuple[str, Optional[str]]: (injected_sketch, error_message)
+            - injected_sketch: Complete sketch with class names injected, or empty string on error
+            - error_message: None if successful, error description if failed
+    
+    Example:
+        >>> sketch, error = inject_class_names(['cat', 'dog', 'bird'])
+        >>> if error is None:
+        ...     print("Success!")
+    """
+    # Validate input
+    if not isinstance(class_names, (list, tuple)) or len(class_names) == 0:
+        return "", "class_names must be a non-empty list"
+    
+    if len(class_names) > 255:
+        return "", "class_names list cannot exceed 255 entries"
+    
+    # Validate each class name
+    for i, name in enumerate(class_names):
+        if not isinstance(name, str):
+            return "", f"Class name at index {i} is not a string"
+        if not name:
+            return "", f"Class name at index {i} is empty"
+        # Validate that class name contains only valid identifier characters
+        if not re.match(r'^[a-zA-Z0-9_\-\s]+$', name):
+            return "", f"Class name '{name}' contains invalid characters. Use only letters, numbers, underscores, hyphens, and spaces."
+    
+    # Construct the template file path for collect-training-images
+    collect_template_file = os.path.join(TEMPLATE_DIR, 'collect-training-images-template.ino')
+    
+    # Check if template file exists
+    if not os.path.exists(collect_template_file):
+        return "", f"Collect template file not found: {collect_template_file}"
+    
+    # Read template content
+    try:
+        with open(collect_template_file, 'r', encoding='utf-8') as f:
+            template_content = f.read()
+    except Exception as e:
+        return "", f"Failed to read template: {str(e)}"
+    
+    # Create the class names array declaration
+    # Format: const char *classNames[] = {"name1", "name2", ...};
+    quoted_names = ', '.join(f'"{name}"' for name in class_names)
+    new_class_names_line = f'const char *classNames[] = {{{quoted_names}}};'
+    
+    # Create the NUM_CLASSES constant
+    num_classes = len(class_names)
+    new_num_classes_line = f'const int NUM_CLASSES = {num_classes};'
+    
+    # Replace the classNames array
+    # Pattern matches: const char *classNames[] = {...};
+    injected_content = re.sub(
+        r'const\s+char\s+\*classNames\[\]\s*=\s*{[^}]*};',
+        new_class_names_line,
+        template_content
+    )
+    
+    # Replace the NUM_CLASSES constant
+    # Pattern matches: const int NUM_CLASSES = X;
+    injected_content = re.sub(
+        r'const\s+int\s+NUM_CLASSES\s*=\s*\d+;',
+        new_num_classes_line,
+        injected_content
+    )
+    
+    # Validate that the replacements were made
+    if new_class_names_line not in injected_content:
+        return "", "Failed to inject class names - pattern not found in template"
+    if new_num_classes_line not in injected_content:
+        return "", "Failed to inject NUM_CLASSES - pattern not found in template"
+    
+    return injected_content, None
