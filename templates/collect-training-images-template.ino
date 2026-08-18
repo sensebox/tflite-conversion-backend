@@ -184,15 +184,23 @@ void drawClassList() {
     if (i == selectedClass) {
       display.setTextSize(2);
       display.print(">");
-      y += LINE_HEIGHT*2;
-    } else {
+      // size 2: each char is 12 px wide; ">" uses 12 px
+      int maxChars = (TEXT_WIDTH - 12) / 12;
+      String name = String(classNames[i]);
+      if ((int)name.length() > maxChars) name = name.substring(0, maxChars);
+      display.println(name);
+      y += LINE_HEIGHT * 2;
       display.setTextSize(1);
+    } else {
       display.print("  ");
+      // size 1: each char is 6 px wide; "  " uses 12 px
+      int maxChars = (TEXT_WIDTH - 12) / CHAR_WIDTH;
+      String name = String(classNames[i]);
+      if ((int)name.length() > maxChars) name = name.substring(0, maxChars);
+      display.println(name);
       y += LINE_HEIGHT;
     }
-    display.println(classNames[i]);
   }
-  display.setTextSize(1);
 }
 
 void renderLive(camera_fb_t *fb) {
@@ -245,7 +253,10 @@ void saveAndShowCaptured(camera_fb_t *fb) {
       Serial.printf("Saved: %s\n", path.c_str());
       sampleCount[selectedClass]++;
       // 0x81 is the CP437 code point for 'ü', used together with display.cp437(true)
-      status = String(num) + " Bilder f" + String((char)0x81) + "r " + String(className) + " auf- genommen";
+      int maxClassChars = TEXT_WIDTH / CHAR_WIDTH;
+      String truncatedName = String(className);
+      if ((int)truncatedName.length() > maxClassChars) truncatedName = truncatedName.substring(0, maxClassChars);
+      status = String(num) + " Bilder f" + String((char)0x81) + "r " + truncatedName + " gesammelt";
     } else {
       Serial.println("Failed to open file for writing");
       status = "Fehler beim Speichern!";
