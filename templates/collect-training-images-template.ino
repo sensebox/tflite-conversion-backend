@@ -92,6 +92,7 @@ SPIClass sdspi = SPIClass();
 // ---------- Buttons ----------
 #define BO_BUTTON   0  // switches to next class
 #define SW_BUTTON  21 // takes a picture
+#define SW_ALT_BUTTON  47 // takes a picture
 const unsigned long DEBOUNCE_DELAY = 50;
 
 bool lastClassBtnState = HIGH;
@@ -100,8 +101,8 @@ unsigned long lastClassDebounceTime = 0;
 unsigned long lastCaptureDebounceTime = 0;
 
 // ---------- Classes ----------
-const char *classNames[] = {"1", "2", "3", "4"};
-const int NUM_CLASSES = 4;
+const char *classNames[] = {"Rasen", "strasse", "anderes"};
+const int NUM_CLASSES = 3;
 int selectedClass = 0;
 int sampleCount[NUM_CLASSES]; // next sample number to use, per class
 
@@ -118,10 +119,9 @@ String classFolder(const char *className) {
   return "/" + f;
 }
 
-// Scans the class folder on the SD card and returns the next free
-// sample number (existing max + 1), so numbering survives reboots.
-int getNextSampleNumber(const String &folderPath) {
-  int maxNum = 0;
+// Counts the number of .jpg files in the class folder
+int countFilesInFolder(const String &folderPath) {
+  int count = 0;
   File dir = SD.open(folderPath);
   if (dir) {
     File entry = dir.openNextFile();
@@ -130,10 +130,8 @@ int getNextSampleNumber(const String &folderPath) {
         String fname = String(entry.name());
         int slashIdx = fname.lastIndexOf('/');
         if (slashIdx >= 0) fname = fname.substring(slashIdx + 1);
-        if (fname.startsWith("sample_") && fname.endsWith(".jpg")) {
-          String numPart = fname.substring(7, fname.length() - 4);
-          int num = numPart.toInt();
-          if (num > maxNum) maxNum = num;
+        if (fname.endsWith(".jpg")) {
+          count++;
         }
       }
       entry.close();
@@ -141,25 +139,36 @@ int getNextSampleNumber(const String &folderPath) {
     }
     dir.close();
   }
-  return maxNum + 1;
+  return count+1;
 }
 
-// Simple debounced "was this button just pressed" check (active LOW)
-bool checkButtonPressed(int pin, bool &lastState, unsigned long &lastDebounceTime) {
-  bool reading = digitalRead(pin);
+// Debounced check if all pins in the list are pressed simultaneously (active LOW)
+bool checkButtonPressed(const int *pins, int numPins, bool &lastCombinedState, unsigned long &lastDebounceTime) {
+  // Check if all pins are currently pressed (LOW)
+  bool allPressed = true;
+  for (int i = 0; i < numPins; i++) {
+    if (digitalRead(pins[i]) != LOW) {
+      allPressed = false;
+      break;
+    }
+  }
+
   bool pressed = false;
 
+  // Debounce: if enough time has passed since last state change
   if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
-    if (reading == LOW && lastState == HIGH) {
+    // Detect transition from HIGH (not pressed) to LOW (pressed)
+    if (allPressed && lastCombinedState == HIGH) {
       pressed = true;
     }
   }
 
-  if (reading != lastState) {
+  // Track state changes for debouncing
+  if (allPressed != (lastCombinedState == LOW)) {
     lastDebounceTime = millis();
   }
 
-  lastState = reading;
+  lastCombinedState = allPressed ? LOW : HIGH;
   return pressed;
 }
 
@@ -273,7 +282,7 @@ void saveAndShowCaptured(camera_fb_t *fb) {
   }
 
   int num = sampleCount[selectedClass];
-  String path = folder + "/sample_" + String(num) + ".jpg";
+  String path = folder + "/" + String(millis()) + ".jpg";
 
   uint8_t *jpgBuf = NULL;
   size_t jpgLen = 0;
@@ -317,6 +326,7 @@ void setup() {
 
   pinMode(BO_BUTTON, INPUT_PULLUP);
   pinMode(SW_BUTTON , INPUT_PULLUP);
+  pinMode(SW_ALT_BUTTON , INPUT_PULLUP);
 
   // Init OLED
   Wire.begin(PIN_QWIIC_SDA, PIN_QWIIC_SCL);
@@ -403,16 +413,16 @@ void setup() {
     return;
   }
 
-  // Determine starting sample numbers per class from existing files on SD
+  // Determine starting sample count per class from existing files on SD
   for (int i = 0; i < NUM_CLASSES; i++) {
     String folder = classFolder(classNames[i]);
     if (sdReady) {
       if (!SD.exists(folder)) {
         SD.mkdir(folder);
       }
-      sampleCount[i] = getNextSampleNumber(folder);
+      sampleCount[i] = countFilesInFolder(folder);
     } else {
-      sampleCount[i] = 1;
+      sampleCount[i] = 0;
     }
   }
 }
@@ -471,7 +481,7 @@ void loop() {
   // While the SD card is exposed as a USB drive, wait for both buttons
   // to be held simultaneously to reboot back into camera mode.
   if (usbMode) {
-    if (digitalRead(BO_BUTTON) == LOW && digitalRead(SW_BUTTON) == LOW) {
+    if (digitalRead(BO_BUTTON) == LOW && digitalRead(SW_BUTTON) == LOW && digitalRead(SW_ALT_BUTTON) == LOW) {
       display.clearDisplay();
       display.setCursor(0, 0);
       display.println("Neustart...");
@@ -483,18 +493,21 @@ void loop() {
   }
 
   // Enter USB mode when both buttons are held simultaneously
-  if (digitalRead(BO_BUTTON) == LOW && digitalRead(SW_BUTTON) == LOW) {
+  if (digitalRead(BO_BUTTON) == LOW && digitalRead(SW_BUTTON) == LOW && digitalRead(SW_ALT_BUTTON) == LOW) {
     enterUsbMode();
     // Wait until both buttons are released so the USB-mode exit combo
     // doesn't trigger immediately on the very first loop iteration.
-    while (digitalRead(BO_BUTTON) == LOW || digitalRead(SW_BUTTON) == LOW) {
+    while (digitalRead(BO_BUTTON) == LOW || digitalRead(SW_BUTTON) == LOW && digitalRead(SW_ALT_BUTTON) == LOW) {
       delay(10);
     }
     return;
   }
 
-  bool classPressed = checkButtonPressed(BO_BUTTON, lastClassBtnState, lastClassDebounceTime);
-  bool capturePressed = checkButtonPressed(SW_BUTTON , lastCaptureBtnState, lastCaptureDebounceTime);
+  const int classPins[] = {BO_BUTTON};
+  bool classPressed = checkButtonPressed(classPins, 1, lastClassBtnState, lastClassDebounceTime);
+
+  const int capturePins[] = {SW_BUTTON, SW_ALT_BUTTON};
+  bool capturePressed = checkButtonPressed(capturePins, 2, lastCaptureBtnState, lastCaptureDebounceTime);
 
   if (classPressed) {
     selectedClass = (selectedClass + 1) % NUM_CLASSES;
