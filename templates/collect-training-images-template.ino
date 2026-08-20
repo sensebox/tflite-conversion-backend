@@ -10,6 +10,39 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "driver/rtc_io.h"
+#include "USB.h"
+#include "USBMSC.h"
+
+// USB Mass Storage object
+USBMSC msc;
+
+// ---------------------------------------------------------
+// USB MSC callbacks — raw sector read/write on the SD card
+// ---------------------------------------------------------
+
+static int32_t sd_msc_read(uint32_t lba, uint32_t offset, void *buffer, uint32_t bufsize) {
+  (void)offset;
+  uint8_t *buf = (uint8_t *)buffer;
+  for (uint32_t i = 0; i < bufsize / 512; i++) {
+    if (!SD.readRAW(buf + i * 512, lba + i)) return -1;
+  }
+  return (int32_t)bufsize;
+}
+
+static int32_t sd_msc_write(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize) {
+  (void)offset;
+  for (uint32_t i = 0; i < bufsize / 512; i++) {
+    if (!SD.writeRAW(buffer + i * 512, lba + i)) return -1;
+  }
+  return (int32_t)bufsize;
+}
+
+static bool sd_msc_start_stop(uint8_t power_condition, bool start, bool load_eject) {
+  (void)power_condition;
+  (void)start;
+  (void)load_eject;
+  return true;
+}
 
 // ---------- camera ----------
 #define PWDN_GPIO_NUM  46
@@ -73,6 +106,7 @@ int selectedClass = 0;
 int sampleCount[NUM_CLASSES]; // next sample number to use, per class
 
 bool sdReady = false;
+bool usbMode = false;
 
 // ---------------------------------------------------------
 // Helpers
@@ -256,7 +290,7 @@ void saveAndShowCaptured(camera_fb_t *fb) {
       int maxClassChars = TEXT_WIDTH / CHAR_WIDTH;
       String truncatedName = String(className);
       if ((int)truncatedName.length() > maxClassChars) truncatedName = truncatedName.substring(0, maxClassChars);
-      status = String(num) + " Bilder f" + String((char)0x81) + "r " + truncatedName + " gesammelt";
+      status = String(num) + " Bilder f" + String((char)0x81) + "r " + truncatedName + " aufgenommen";
     } else {
       Serial.println("Failed to open file for writing");
       status = "Fehler beim Speichern!";
@@ -293,7 +327,7 @@ void setup() {
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0, 0);
-  display.println("Initializing...");
+  display.println("Initialisieren...");
   display.display();
 
   // Camera config (grayscale, small frame - fast live view and small training images)
@@ -341,12 +375,32 @@ void setup() {
   digitalWrite(SD_ENABLE, LOW);
 
   sdspi.begin(VSPI_SCLK, VSPI_MISO, VSPI_MOSI, VSPI_SS);
+  delay(100);
   if (!SD.begin(VSPI_SS, sdspi)) {
     Serial.println("Card Mount Failed");
+    // Retry once after a longer delay
+    delay(500);
+    if (SD.begin(VSPI_SS, sdspi) && SD.cardType() != CARD_NONE) {
+      sdReady = true;
+    }
   } else if (SD.cardType() == CARD_NONE) {
     Serial.println("No SD card attached");
   } else {
     sdReady = true;
+  }
+  Serial.printf("SD ready: %s\n", sdReady ? "yes" : "no");
+
+  if (!sdReady) {
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("SD-Karte nicht");
+    display.println("erkannt.");
+    display.println("");
+    display.println("Bitte ueberpruefe");
+    display.println("die SD-Karte und");
+    display.println("starte dann neu.");
+    display.display();
+    return;
   }
 
   // Determine starting sample numbers per class from existing files on SD
@@ -364,10 +418,81 @@ void setup() {
 }
 
 // ---------------------------------------------------------
+// USB Mass Storage
+// ---------------------------------------------------------
+
+void enterUsbMode() {
+  if (!sdReady) {
+    Serial.println("Cannot enter USB mode: SD card not ready");
+    return;
+  }
+
+  Serial.println("Entering USB Mass Storage mode");
+  uint32_t sectorCount = SD.cardSize() / 512;
+
+  USB.productName("senseBox MCU Eye - Training Data");
+  USB.manufacturerName("senseBox");
+
+  msc.vendorID("senseBox");
+  msc.productID("SD Card");
+  msc.productRevision("1.0");
+  msc.onRead(sd_msc_read);
+  msc.onWrite(sd_msc_write);
+  msc.onStartStop(sd_msc_start_stop);
+  msc.mediaPresent(true);
+
+  msc.begin(sectorCount, 512);
+  usbMode = true;
+
+  USB.begin();
+  Serial.println("USB Mass Storage ready - SD card accessible as USB drive");
+
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("SD-Karte als USB-");
+  display.println("Laufwerk verfuegbar.");
+  display.println("");
+  display.println("Kopiere deine");
+  display.println("Trainingsbilder");
+  display.println("auf den PC.");
+  display.display();
+}
+
+// ---------------------------------------------------------
 // Loop
 // ---------------------------------------------------------
 
 void loop() {
+  if (!sdReady) {
+    delay(1000);
+    return;
+  }
+
+  // While the SD card is exposed as a USB drive, wait for both buttons
+  // to be held simultaneously to reboot back into camera mode.
+  if (usbMode) {
+    if (digitalRead(BO_BUTTON) == LOW && digitalRead(SW_BUTTON) == LOW) {
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.println("Neustart...");
+      display.display();
+      esp_restart();
+    }
+    delay(100);
+    return;
+  }
+
+  // Enter USB mode when both buttons are held simultaneously
+  if (digitalRead(BO_BUTTON) == LOW && digitalRead(SW_BUTTON) == LOW) {
+    enterUsbMode();
+    // Wait until both buttons are released so the USB-mode exit combo
+    // doesn't trigger immediately on the very first loop iteration.
+    while (digitalRead(BO_BUTTON) == LOW || digitalRead(SW_BUTTON) == LOW) {
+      delay(10);
+    }
+    return;
+  }
+
   bool classPressed = checkButtonPressed(BO_BUTTON, lastClassBtnState, lastClassDebounceTime);
   bool capturePressed = checkButtonPressed(SW_BUTTON , lastCaptureBtnState, lastCaptureDebounceTime);
 
