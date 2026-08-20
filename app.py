@@ -53,7 +53,7 @@ if os.getenv('TESTING') != 'true':
 
 # Enable CORS for frontend communication
 CORS(app, resources={
-    r"/api/*": {
+    r"/api/.*": {
         "origins": ["*"],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
